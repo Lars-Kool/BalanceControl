@@ -8,17 +8,22 @@ import re
 historique_vwr = deque(maxlen=10)
 historique_kern = deque(maxlen=10)
 historique_temps = deque(maxlen=10)
-filename="1p3_1000ml_v2.txt" 
- 
+filename = "1p3_1000ml_v2.txt"
+
 # Fonction pour obtenir l'heure au format minutes:secondes:millisecondes
+
+
 def obtenir_temps():
     t = time.time()
     minutes = int(t // 60)
     secondes = int(t % 60)
     millisecondes = int((t % 1) * 1000)  # Extraire les millisecondes
-    return f"{minutes:02}:{secondes:02}:{millisecondes:03}", t  # Retourne aussi le temps en secondes pour le fit
+    # Retourne aussi le temps en secondes pour le fit
+    return f"{minutes:02}:{secondes:02}:{millisecondes:03}", t
 
 # Fonction pour ouvrir et lire les données d'une balance
+
+
 def lire_balance(port):
     try:
         # Ouvrir le port série
@@ -26,9 +31,9 @@ def lire_balance(port):
         # Lire les données de la balance
         while True:
             data = ser.readline().decode().strip()
-            result=re.search(r'([+-]?\d+\.\d+)', data)
+            result = re.search(r'([+-]?\d+\.\d+)', data)
             if data:
-                if port=="COM4":
+                if port == "COM4":
                     return float(result.group(0))/0.791
                 else:
                     return float(result.group(0))/0.997
@@ -39,6 +44,8 @@ def lire_balance(port):
         ser.close()
 
 # Fonction pour calculer le débit à partir des 10 dernières mesures
+
+
 def calculer_debit(historique_masse, historique_temps):
     if len(historique_masse) < 2:
         return 0  # Pas assez de points pour un fit
@@ -46,16 +53,18 @@ def calculer_debit(historique_masse, historique_temps):
     # Ajustement linéaire (y = ax + b) -> on récupère a (pente)
     t_array = np.array(historique_temps)
     m_array = np.array(historique_masse)
-    
+
     # Remise à zéro en soustrayant la première valeur stockée
     t_array -= t_array[0]  # Temps relatif par rapport au premier
     m_array -= m_array[0]  # Masse relative par rapport à la première mesure
-    
+
     # Fit linéaire d'ordre 1 (affine y = ax + b)
     pente, _ = np.polyfit(t_array, -m_array, 1)
     return pente  # La pente représente le débit
 
 # Fonction principale pour collecter et enregistrer les données
+
+
 def collecter_donnees():
     with open(filename, "w") as fichier:
         while True:
@@ -72,15 +81,18 @@ def collecter_donnees():
 
                 # Calculer le débit (mais ne pas l'enregistrer dans le fichier)
                 debit_vwr = calculer_debit(historique_vwr, historique_temps)*60
-                debit_kern = calculer_debit(historique_kern, historique_temps)*60 
-                total_flow=debit_vwr+debit_kern
+                debit_kern = calculer_debit(
+                    historique_kern, historique_temps)*60
+                total_flow = debit_vwr+debit_kern
                 ratio_flow = debit_vwr / debit_kern if debit_kern != 0 else 0
-                
+
                 # Enregistrer les données dans le fichier (sans les valeurs de débit)
-                fichier.write(f"{masse_vwr} {temps_format} {masse_kern} {temps_format}\n")
+                fichier.write(
+                    f"{masse_vwr} {temps_format} {masse_kern} {temps_format}\n")
 
                 # Afficher les valeurs et le débit à l'écran
-                print("\033[H\033[J")  # Efface la console pour afficher proprement
+                # Efface la console pour afficher proprement
+                print("\033[H\033[J")
                 print("==============================")
                 print(f"Volume EtOH  : {masse_kern:.2f} ml")
                 print(f"Volume H2O  : {masse_vwr:.2f} mL")
@@ -91,6 +103,7 @@ def collecter_donnees():
                 print("==============================")
             # Attendre 0.1s avant la prochaine mesure
             time.sleep(0.1)
+
 
 # Appel de la fonction principale
 if __name__ == "__main__":

@@ -119,3 +119,4 @@ if __name__ == "__main__":
     filename: str = "test.txt"
     logging.config.fileConfig("logger_config.toml", defaults={
                               "filename": filename})
+    asyncio.run(main())
