@@ -31,10 +31,10 @@ keys=file,console
 
 [formatter_file]
 class=logging.Formatter
-format=%(asctime)s %(message)s
+format=[%(asctime)s][%(levelname)-8s]: %(message)s
 datefmt=%H:%M:%S
 
 [formatter_console]
 class=logging.Formatter
-format=%(asctime)s %(message)s
+format=[%(asctime)s][%(levelname)-8s]: %(message)s
 datefmt=%H:%M:%S

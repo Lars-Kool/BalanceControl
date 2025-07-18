@@ -7,116 +7,168 @@ import asyncio
 
 import numpy as np
 
-from collections import deque
-from scipy.optimize import curve_fit
+from asyncio import get_event_loop
+from serial_asyncio import open_serial_connection
 
 logger = logging.getLogger(__name__)
 
 
+def linear_fit(x, a, b) -> np.ndarray:
+    """Fit for y = ax + b."""
+    return a * x + b
+
+
 class Scale:
+    """Class for scales."""
+
     port: str = ""
+    baudrate: int = 0
+    timeout: int = 0
+    density: float = 1.0
+    debug: bool = False
+
     ser: serial.Serial = None
     initialized: bool = False
+
     task: asyncio.Task = None
-    volume_buffer: deque = deque([0 for i in range(10)], maxlen=10)
-    time_buffer: deque = deque([0 for i in range(10)], maxlen=10)
+    buffer_id: int = 0
+    volume_buffer: np.ndarray = np.zeros((10,))
+    time_buffer: np.ndarray = np.zeros((10,))
+    start_time: float = 0.0
 
     def __init__(self,
                  port: str,
                  baudrate: int = 9600,
                  timeout: int = 1,
-                 density: float = 1.0
-                 ):
+                 density: float = 1.0,
+                 buffer_length: int = 10,
+                 debug: bool = False
+                 ) -> None:
         """Initialize scale.
 
         Established serial connection.
         """
+        self.port = port
+        self.baudrate = baudrate
+        self.timeout = timeout
+        self.density = density
+        self.buffer_length = buffer_length
+        self.debug = debug
+
+        logger.debug(f"Generated scale in debug mode: {debug}")
         try:
-            self.ser = serial.Serial(port, baudrate, timeout)
+            if not self.debug:
+                self.ser = serial.Serial(port, baudrate, timeout)
             self.initialized = True
         except Exception as e:
             logger.error(f"Error occurred on port {self.port}: {e}")
-        finally:
-            self.ser.close()
 
-    def __del__(self):
+    def __del__(self) -> None:
         """Make sure serial port is properly closed."""
         try:
-            self.ser.close()
+            if not self.debug:
+                self.ser.close()
         except Exception as e:
             logger.error(f"Error occurred on port {self.port}: {e}")
 
-    async def run_task(self):
-        """Actual data collection."""
-        while True:
-            raw_data: str = self.ser.readline().decode().strip()
-            value: float = float(re.search(r"([+-]?\d+\.\d+)", raw_data))
-            self.volume_buffer.append(value / self.density)
-            self.time_buffer.append(time.time())
+        if self.task:
+            self.task.cancel()
+            logger.info("Task cancelled as part of destructor.")
 
-    def start_task(self):
+    async def run_task(self) -> None:
+        """Actual data collection."""
+        self.start_time = time.perf_counter()
+        while True:
+            value: float = 0.0
+            if self.debug:
+                value = time.perf_counter() - self.start_time
+            else:
+                raw_data: str = self.ser.readline().decode().strip()
+                value = float(
+                    re.search(r"([+-]?\d+\.\d+)", raw_data)
+                )
+
+            self.volume_buffer[self.buffer_id] = value / self.density
+            self.time_buffer[self.buffer_id] = time.perf_counter()
+            logger.debug(self.volume_buffer[self.buffer_id])
+            self.buffer_id = (self.buffer_id + 1) % self.buffer_length
+            await asyncio.sleep(0.1)
+
+    def start_task(self) -> None:
         """Start data collection task."""
         if not self.initialized:
             logger.error(
                 f"Serial connection on port {self.port} not initialized")
             return
         try:
-            self.task = asyncio.create_task(self.start_task())
+            logger.debug("Creating task.")
+            self.task = asyncio.create_task(self.run_task())
         except Exception as e:
             logger.error(f"Error occurred while running port {self.port}: {e}")
-        finally:
-            self.task.cancel()
-            logger.error("Task automatically cancelled")
 
-    def get_flowrate(self):
+    async def get_flowrate(self) -> float:
         """Get flowrate in g/s.
 
         Fits weight over time with straight line to obtain flowrate.
         """
-        fit_vals, _ = curve_fit(linear_fit,
-                                np.array(self.time_buffer),
-                                np.array(self.volume_buffer))
-        return fit_vals[0]
+        v_asc: np.ndarray = self.volume_buffer.take(
+            range(self.buffer_id, self.buffer_id + self.buffer_length - 1),
+            mode="wrap"
+        )
+        t_asc: np.ndarray = self.time_buffer.take(
+            range(self.buffer_id, self.buffer_id + self.buffer_length - 1),
+            mode="wrap"
+        )
+        dt: float = t_asc[-1] - t_asc[0]
+        area: float = np.sum(
+            (v_asc[1:] + v_asc[:-1]) * (t_asc[1:] - t_asc[:-1])
+        ) / 2 - v_asc[0] * dt
+        logger.debug(f"Area: {area}")
+        return 2 * area / (dt ** 2) if dt > 0 else 0
 
-    def get_volume(self):
+    async def get_volume(self) -> float:
         """Return the most recently acquired mass value."""
-        return self.data[-1]
+        return self.volume_buffer[self.buffer_id - 1]
 
 
-def linear_fit(x, a, b) -> np.ndarray:
-    return a * x + b
+async def main_loop():
+    while True:
+        volume_water: float = await scale_water.get_volume()
+        volume_ethanol: float = await scale_ethanol.get_volume()
+        flowrate_water: float = await scale_water.get_flowrate()
+        flowrate_ethanol: float = await scale_ethanol.get_flowrate()
+
+        logger.debug(
+            f"{volume_water:.2f} " +
+            f"{volume_ethanol:.2f} " +
+            f"{flowrate_water:.2f} " +
+            f"{flowrate_ethanol:.2f} " +
+            f"{time.time():.2f}"
+        )
+        await asyncio.sleep(1)
 
 
 async def main() -> None:
-    scale_water: Scale = Scale(
-        port="COM3", baudrate=9600, timeout=1, density=0.997)
-    scale_ethanol: Scale = Scale(
-        port="COM4", baudrate=9600, timeout=1, density=0.791)
-
-    if not scale_water.initialized or not scale_ethanol.initialized:
-        logger.error(
-            f"Cannot start experiment, as at least one of the scales is not initialized.")
-        return
-
+    """Run main function asynchronously."""
     # Start collecting data
-    scale_water.start_task()
     scale_ethanol.start_task()
-    asyncio.sleep(5)  # Wait to fill buffer
-
-    logger.info("Time (HH:MM:SS)  Weight water")
-    while True:
-        flowrate_water: float = scale_water.get_flowrate()
-        volume_water: float = scale_water.get_volume()
-        flowrate_ethanol: float = scale_ethanol.get_flowrate()
-        volume_ethanol: float = scale_ethanol.get_volume()
-
-        logger.info(
-            f"{volume_water} {volume_ethanol} {flowrate_water} {flowrate_ethanol} {time.time()}"
-        )
+    scale_water.start_task()
+    task: asyncio.Task = asyncio.create_task(main_loop())
+    await asyncio.gather(scale_water.task, scale_ethanol.task, task)
 
 
 if __name__ == "__main__":
     filename: str = "test.txt"
     logging.config.fileConfig("logger_config.toml", defaults={
                               "filename": filename})
-    asyncio.run(main())
+
+    scale_water: Scale = Scale(
+        port="COM3", baudrate=9600, timeout=1, density=10.997, debug=True)
+    scale_ethanol: Scale = Scale(
+        port="COM4", baudrate=9600, timeout=1, density=0.791, debug=True)
+
+    if not scale_water.initialized or not scale_ethanol.initialized:
+        logger.error(
+            f"Cannot start experiment, as at least one of the scales is not initialized.")
+    else:
+        asyncio.run(main())
