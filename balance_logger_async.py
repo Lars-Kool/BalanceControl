@@ -271,22 +271,21 @@ if __name__ == "__main__":
                               "filename": filename})
     DEBUG: bool = False
     index_water: int = 3
-    index_ethanol: int = 2
+    index_ethanol: int = 0
 
     water_start_pressure: float = 0.0 if DEBUG else fgt_get_pressure(index_water)
     ethanol_start_pressure: float = 0.0 if DEBUG else fgt_get_pressure(index_ethanol)
 
     scale_water: Scale = Scale(
         port="COM5", baudrate=9600, timeout=1, density=0.997, debug=DEBUG,
-        PID_params=[300, 50, 50], target=150, start_value=water_start_pressure,
+        PID_params=[50, 5, 100], target=900, start_value=water_start_pressure,
         output_limits=[0, 3000], index=index_water
     )
     scale_ethanol: Scale = Scale(
-        port="COM6", baudrate=9600, timeout=1, density=0.997, debug=DEBUG,
-        PID_params=[2000, 500, 20], target=150, start_value=ethanol_start_pressure,
+        port="COM6", baudrate=9600, timeout=1, density=0.791, debug=DEBUG,
+        PID_params=[300, 50, 50], target=100, start_value=ethanol_start_pressure,
         output_limits=[0, 5000], index=index_ethanol
     )
-    # 0.791
 
     loop = asyncio.get_event_loop()
     loop.run_until_complete(main())

@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 
-with open("values80ml_s.txt") as f:
+with open("values.txt") as f:
     lines = f.readlines()
 
 data = np.array([[float(val) for val in line.strip().split(' ')] for line in lines])
